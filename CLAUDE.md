@@ -10,49 +10,64 @@ This is the masterapp Go project - a Dynamic Electrochemical Impedance Spectrosc
 
 ### Build and Run
 ```bash
-go run main.go                                    # Run with default settings
-go run main.go -target="http://localhost:9000"   # Specify target URL
-go run main.go -rate=2000 -samples=2000          # Custom sample rate and samples per second
-go build -o masterapp                            # Build executable
+go run ./cmd/masterapp                              # Run with default settings  
+go run ./cmd/masterapp -target="http://localhost:9000"  # Specify target URL
+go run ./cmd/masterapp -rate=2000 -samples=2000    # Custom sample rate and samples per second
+go build -o masterapp ./cmd/masterapp              # Build executable
 ```
 
 ### Testing
 ```bash
-go test ./...          # Run all tests (when tests are added)
-go test -v ./...       # Run tests with verbose output
+go test ./pkg/...      # Run all module tests
+go test -v ./pkg/...   # Run tests with verbose output
+go test ./pkg/signal   # Test specific module
 ```
 
 ### Code Quality
 ```bash
 go fmt ./...           # Format code
-go vet ./...           # Run static analysis
+go vet ./...           # Run static analysis  
 goimports -w .         # Format imports (if goimports is installed)
 ```
 
-## Project Structure
+## Modular Architecture
 
-### Core Files
-- `main.go` - Entry point with signal processing orchestration and CLI flags
-- `types.go` - Core data structures for signals, FFT results, and impedance data
-- `interfaces.go` - Interface definitions for dependency injection and testability
-- `errors.go` - Centralized error types and error handling utilities
-- `validator.go` - Signal validation logic with comprehensive error checking
+The application follows a clean, modular architecture with proper separation of concerns:
 
-### Implementation Files
-- `receiver.go` - Real-time data receiver with signal generation (DefaultDataReceiver)
-- `fft.go` - Fast Fourier Transform implementation for signal processing (DefaultFFTProcessor)
-- `impedance.go` - Impedance calculation Z(f) = U(f)/I(f) with error handling (DefaultImpedanceCalculator)
-- `sender.go` - HTTP client for sending JSON data to target application (DefaultDataSender)
-
-### Test Files
-- `validator_test.go` - Unit tests for validation logic
-- `fft_test.go` - Unit tests for FFT processing with known test vectors
-- `impedance_test.go` - Unit tests for impedance calculations
-
-### Configuration
-- `go.mod` - Go module definition specifying Go 1.24
-- `CLAUDE.md` - This documentation file
-- `.gitignore` - Git ignore patterns for Go projects
+### Project Structure
+```
+masterapp/
+├── cmd/
+│   └── masterapp/
+│       └── main.go                 # Application entry point
+├── pkg/                            # Public reusable packages
+│   ├── signal/                     # Signal types, validation, generation
+│   │   ├── types.go               # Core signal data structures
+│   │   ├── interfaces.go          # Signal-related interfaces
+│   │   ├── validator.go           # Signal validation logic
+│   │   ├── generator.go           # Signal generation for testing
+│   │   └── validator_test.go      # Validation tests
+│   ├── fft/                       # Fast Fourier Transform processing
+│   │   ├── interfaces.go          # FFT processor interface
+│   │   ├── processor.go           # FFT implementation
+│   │   └── processor_test.go      # FFT tests with known vectors
+│   ├── impedance/                 # Impedance calculations
+│   │   ├── interfaces.go          # Calculator interface
+│   │   └── calculator.go          # Z(f) = U(f)/I(f) calculations
+│   ├── network/                   # HTTP communication
+│   │   ├── interfaces.go          # Network sender interface
+│   │   └── sender.go              # HTTP client with health monitoring
+│   ├── receiver/                  # Real-time data reception
+│   │   ├── interfaces.go          # Data receiver interface
+│   │   └── receiver.go            # Real-time signal processing
+│   └── config/                    # Configuration and errors
+│       ├── config.go              # Application configuration
+│       └── errors.go              # Centralized error types
+├── go.mod                         # Go module definition
+├── go.sum                         # Go module checksums
+├── CLAUDE.md                      # This documentation
+└── .gitignore                     # Git ignore patterns
+```
 
 ## Architecture Notes
 
@@ -74,43 +89,77 @@ goimports -w .         # Format imports (if goimports is installed)
 - `-rate`: Sample rate in Hz (default: 1000.0)
 - `-samples`: Number of samples per second (default: 1000)
 
-## Interface-Based Architecture
+## Module Responsibilities
 
-The application follows a clean architecture pattern with dependency injection:
+### 🔬 **signal/** - Core Signal Processing Types
+- **Types**: Signal, ComplexSignal, ImpedanceData, EISMeasurement
+- **Validation**: Comprehensive signal validation with edge case handling
+- **Generation**: Realistic signal generation for testing and simulation
+- **Interfaces**: Validator and Generator interfaces for dependency injection
 
-### Core Interfaces
-- **DataReceiver**: Handles real-time signal reception with context-based cancellation
-- **FFTProcessor**: Processes signals using Fast Fourier Transform with validation
-- **ImpedanceCalculator**: Calculates complex impedance from voltage/current signals
-- **DataSender**: Sends processed data via HTTP with health monitoring
-- **SignalValidator**: Validates all signal types with comprehensive error checking
-- **SignalGenerator**: Generates realistic test signals for development/testing
+### ⚡ **fft/** - Fast Fourier Transform Processing  
+- **Algorithm**: Radix-2 FFT with DFT fallback for non-power-of-2 lengths
+- **Validation**: Input signal validation and result verification
+- **Frequency Extraction**: Positive frequency component extraction
+- **Interface**: Clean Processor interface for easy testing and mocking
 
-### Error Handling Strategy
-- **Centralized Error Types**: ValidationError, ProcessingError, NetworkError
-- **Error Wrapping**: Maintains error context through the processing pipeline
-- **Graceful Degradation**: Invalid signals are logged and skipped, not fatal
-- **Health Monitoring**: Components track their health status for diagnostics
+### 🧮 **impedance/** - Electrochemical Impedance Calculations
+- **Core Function**: Z(f) = U(f)/I(f) complex impedance calculation
+- **EIS Processing**: Complete electrochemical impedance spectroscopy workflow
+- **Error Handling**: Division by zero protection and validation
+- **Interface**: Calculator interface with signal compatibility validation
 
-### Testing Strategy
-- **Unit Tests**: Comprehensive coverage for all components with edge cases
-- **Interface Mocking**: Easy to mock dependencies for isolated testing  
-- **Known Test Vectors**: FFT and impedance calculations tested against known values
-- **Validation Testing**: Edge cases like NaN, infinity, and zero values covered
-- **Error Path Testing**: All error conditions and error types tested
+### 🌐 **network/** - HTTP Communication
+- **Data Transmission**: JSON-based HTTP POST to target applications
+- **Health Monitoring**: Connection health tracking and error recovery
+- **Formatting**: Pretty-printed JSON formatting capabilities
+- **Interface**: Sender interface with multiple data type support
 
-### Dependency Injection Benefits
-- **Testability**: Easy to mock components for unit testing
-- **Flexibility**: Can swap implementations without changing calling code
-- **Maintainability**: Clear separation of concerns between components
-- **Extensibility**: Easy to add new implementations (e.g., different data sources)
+### 📡 **receiver/** - Real-time Data Reception
+- **Timing**: 1-second interval real-time signal processing
+- **Context Management**: Graceful shutdown with context cancellation
+- **Channel Management**: Buffered channels with overflow protection
+- **Interface**: DataReceiver interface with lifecycle management
 
-## Testing Commands
+### ⚙️ **config/** - Configuration and Error Management
+- **Configuration**: Application settings with validation
+- **Error Types**: Centralized error definitions (ValidationError, ProcessingError, NetworkError)
+- **Validation Utilities**: Reusable validation functions across modules
+- **Constants**: Shared error constants and configuration limits
+
+## Architecture Benefits
+
+### ✅ **Modularity**
+- Each package has a single, well-defined responsibility
+- Clear boundaries prevent tight coupling between components
+- Easy to understand, test, and maintain individual modules
+
+### ✅ **Reusability** 
+- Packages in `pkg/` can be imported by other Go projects
+- FFT and signal processing modules are general-purpose
+- Clean interfaces enable composition and extension
+
+### ✅ **Testability**
+- Interface-based design enables easy mocking
+- Each module can be tested in complete isolation
+- Clear dependency injection makes integration testing straightforward
+
+### ✅ **Maintainability**
+- Changes to one module don't affect others
+- Clear API boundaries prevent accidental coupling
+- Easy to add new features or replace implementations
+
+## Testing Strategy
 
 ```bash
-go test -v ./...                    # Run all tests with verbose output
-go test -cover ./...                # Run tests with coverage analysis
-go test -race ./...                 # Run tests with race condition detection
-go test -run=TestFFT ./...          # Run only FFT-related tests
-go test -bench=. ./...              # Run benchmarks (if any)
+# Module-specific testing
+go test ./pkg/signal                # Test signal processing
+go test ./pkg/fft                   # Test FFT implementation  
+go test ./pkg/impedance             # Test impedance calculations
+
+# Comprehensive testing
+go test ./pkg/...                   # All module tests
+go test -v ./pkg/...               # Verbose output
+go test -cover ./pkg/...           # Coverage analysis
+go test -race ./pkg/...            # Race condition detection
 ```

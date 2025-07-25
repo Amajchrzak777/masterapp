@@ -1,4 +1,4 @@
-package main
+package network
 
 import (
 	"bytes"
@@ -8,21 +8,26 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/adam/masterapp/pkg/config"
+	"github.com/adam/masterapp/pkg/signal"
 )
 
-type DefaultDataSender struct {
+// DefaultSender implements HTTP-based data transmission
+type DefaultSender struct {
 	targetURL string
 	client    *http.Client
 	healthy   bool
 }
 
-func NewDataSender(targetURL string) DataSender {
+// NewSender creates a new network data sender
+func NewSender(targetURL string) Sender {
 	// Validate URL
 	if _, err := url.Parse(targetURL); err != nil {
 		log.Printf("Warning: Invalid target URL %s: %v", targetURL, err)
 	}
 
-	return &DefaultDataSender{
+	return &DefaultSender{
 		targetURL: targetURL,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
@@ -31,21 +36,22 @@ func NewDataSender(targetURL string) DataSender {
 	}
 }
 
-func (ds *DefaultDataSender) SendEISMeasurement(measurement EISMeasurement) error {
+// SendEISMeasurement sends a complete EIS measurement to the target server
+func (ds *DefaultSender) SendEISMeasurement(measurement signal.EISMeasurement) error {
 	if ds.targetURL == "" {
-		return NewNetworkError(ds.targetURL, 0, ErrInvalidURL)
+		return config.NewNetworkError(ds.targetURL, 0, config.ErrInvalidURL)
 	}
 
 	jsonData, err := json.Marshal(measurement)
 	if err != nil {
 		ds.healthy = false
-		return NewProcessingError("JSON marshaling", ErrJSONMarshalFailed)
+		return config.NewProcessingError("JSON marshaling", config.ErrJSONMarshalFailed)
 	}
 
 	req, err := http.NewRequest("POST", ds.targetURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		ds.healthy = false
-		return NewNetworkError(ds.targetURL, 0, fmt.Errorf("failed to create request: %w", err))
+		return config.NewNetworkError(ds.targetURL, 0, fmt.Errorf("failed to create request: %w", err))
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -54,13 +60,13 @@ func (ds *DefaultDataSender) SendEISMeasurement(measurement EISMeasurement) erro
 	resp, err := ds.client.Do(req)
 	if err != nil {
 		ds.healthy = false
-		return NewNetworkError(ds.targetURL, 0, fmt.Errorf("failed to send request: %w", err))
+		return config.NewNetworkError(ds.targetURL, 0, fmt.Errorf("failed to send request: %w", err))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		ds.healthy = false
-		return NewNetworkError(ds.targetURL, resp.StatusCode, ErrInvalidHTTPResponse)
+		return config.NewNetworkError(ds.targetURL, resp.StatusCode, config.ErrInvalidHTTPResponse)
 	}
 
 	ds.healthy = true
@@ -68,21 +74,22 @@ func (ds *DefaultDataSender) SendEISMeasurement(measurement EISMeasurement) erro
 	return nil
 }
 
-func (ds *DefaultDataSender) SendImpedanceData(impedanceData ImpedanceData) error {
+// SendImpedanceData sends impedance data to the target server
+func (ds *DefaultSender) SendImpedanceData(impedanceData signal.ImpedanceData) error {
 	if ds.targetURL == "" {
-		return NewNetworkError(ds.targetURL, 0, ErrInvalidURL)
+		return config.NewNetworkError(ds.targetURL, 0, config.ErrInvalidURL)
 	}
 
 	jsonData, err := json.Marshal(impedanceData)
 	if err != nil {
 		ds.healthy = false
-		return NewProcessingError("JSON marshaling", ErrJSONMarshalFailed)
+		return config.NewProcessingError("JSON marshaling", config.ErrJSONMarshalFailed)
 	}
 
 	req, err := http.NewRequest("POST", ds.targetURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		ds.healthy = false
-		return NewNetworkError(ds.targetURL, 0, fmt.Errorf("failed to create request: %w", err))
+		return config.NewNetworkError(ds.targetURL, 0, fmt.Errorf("failed to create request: %w", err))
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -91,13 +98,13 @@ func (ds *DefaultDataSender) SendImpedanceData(impedanceData ImpedanceData) erro
 	resp, err := ds.client.Do(req)
 	if err != nil {
 		ds.healthy = false
-		return NewNetworkError(ds.targetURL, 0, fmt.Errorf("failed to send request: %w", err))
+		return config.NewNetworkError(ds.targetURL, 0, fmt.Errorf("failed to send request: %w", err))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		ds.healthy = false
-		return NewNetworkError(ds.targetURL, resp.StatusCode, ErrInvalidHTTPResponse)
+		return config.NewNetworkError(ds.targetURL, resp.StatusCode, config.ErrInvalidHTTPResponse)
 	}
 
 	ds.healthy = true
@@ -105,14 +112,16 @@ func (ds *DefaultDataSender) SendImpedanceData(impedanceData ImpedanceData) erro
 	return nil
 }
 
-func (ds *DefaultDataSender) FormatAsJSON(data interface{}) (string, error) {
+// FormatAsJSON formats data as pretty-printed JSON
+func (ds *DefaultSender) FormatAsJSON(data interface{}) (string, error) {
 	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
-		return "", NewProcessingError("JSON formatting", ErrJSONMarshalFailed)
+		return "", config.NewProcessingError("JSON formatting", config.ErrJSONMarshalFailed)
 	}
 	return string(jsonData), nil
 }
 
-func (ds *DefaultDataSender) IsHealthy() bool {
+// IsHealthy returns the current health status of the sender
+func (ds *DefaultSender) IsHealthy() bool {
 	return ds.healthy
 }
