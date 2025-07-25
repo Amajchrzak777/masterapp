@@ -1,6 +1,7 @@
 package signal
 
 import (
+	"encoding/json"
 	"math/cmplx"
 	"time"
 )
@@ -15,17 +16,55 @@ type Signal struct {
 // ComplexSignal represents a frequency-domain signal after FFT processing
 type ComplexSignal struct {
 	Timestamp   time.Time    `json:"timestamp"`
-	Values      []complex128 `json:"values"`
+	Values      []complex128 `json:"-"`
 	Frequencies []float64    `json:"frequencies"`
+}
+
+// MarshalJSON custom JSON marshaling for ComplexSignal
+func (cs ComplexSignal) MarshalJSON() ([]byte, error) {
+	type Alias ComplexSignal
+	complexValues := make([]map[string]float64, len(cs.Values))
+	for i, v := range cs.Values {
+		complexValues[i] = map[string]float64{
+			"real": real(v),
+			"imag": imag(v),
+		}
+	}
+	return json.Marshal(&struct {
+		Values []map[string]float64 `json:"values"`
+		*Alias
+	}{
+		Values: complexValues,
+		Alias:  (*Alias)(&cs),
+	})
 }
 
 // ImpedanceData represents calculated impedance with magnitude and phase
 type ImpedanceData struct {
 	Timestamp   time.Time    `json:"timestamp"`
-	Impedance   []complex128 `json:"impedance"`
+	Impedance   []complex128 `json:"-"`
 	Frequencies []float64    `json:"frequencies"`
 	Magnitude   []float64    `json:"magnitude"`
 	Phase       []float64    `json:"phase"`
+}
+
+// MarshalJSON custom JSON marshaling for ImpedanceData
+func (id ImpedanceData) MarshalJSON() ([]byte, error) {
+	type Alias ImpedanceData
+	complexImpedance := make([]map[string]float64, len(id.Impedance))
+	for i, v := range id.Impedance {
+		complexImpedance[i] = map[string]float64{
+			"real": real(v),
+			"imag": imag(v),
+		}
+	}
+	return json.Marshal(&struct {
+		Impedance []map[string]float64 `json:"impedance"`
+		*Alias
+	}{
+		Impedance: complexImpedance,
+		Alias:     (*Alias)(&id),
+	})
 }
 
 // EISMeasurement represents a complete electrochemical impedance spectroscopy measurement
