@@ -104,35 +104,20 @@ func (ic *DefaultCalculator) ProcessEISMeasurement(voltageSignal, currentSignal 
 		return signal.EISMeasurement{}, config.NewProcessingError("signal validation", err)
 	}
 
+
 	impedanceData, err := ic.CalculateImpedance(voltageSignal, currentSignal)
 	if err != nil {
 		return signal.EISMeasurement{}, config.NewProcessingError("impedance calculation", err)
 	}
 
-	voltageFFT, err := ic.fftProcessor.ProcessSignal(voltageSignal)
-	if err != nil {
-		return signal.EISMeasurement{}, config.NewProcessingError("voltage FFT processing", err)
-	}
-	
-	currentFFT, err := ic.fftProcessor.ProcessSignal(currentSignal)
-	if err != nil {
-		return signal.EISMeasurement{}, config.NewProcessingError("current FFT processing", err)
-	}
-
-	voltageFFT, err = ic.fftProcessor.GetPositiveFrequencies(voltageFFT)
-	if err != nil {
-		return signal.EISMeasurement{}, config.NewProcessingError("voltage positive frequencies", err)
-	}
-	
-	currentFFT, err = ic.fftProcessor.GetPositiveFrequencies(currentFFT)
-	if err != nil {
-		return signal.EISMeasurement{}, config.NewProcessingError("current positive frequencies", err)
-	}
-
-	measurement := signal.EISMeasurement{
-		Voltage:   voltageFFT,
-		Current:   currentFFT,
-		Impedance: impedanceData,
+	// Convert to EISMeasurement format
+	measurement := make(signal.EISMeasurement, len(impedanceData.Impedance))
+	for i, z := range impedanceData.Impedance {
+		measurement[i] = signal.ImpedancePoint{
+			Frequency: impedanceData.Frequencies[i],
+			Real:      real(z),
+			Imag:      imag(z),
+		}
 	}
 
 	return measurement, nil

@@ -167,7 +167,7 @@ func (fft *DefaultProcessor) dft(x []complex128) ([]complex128, error) {
 	return result, nil
 }
 
-// generateFrequencies creates logarithmically spaced frequencies for EIS analysis
+// generateFrequencies creates the frequency array for FFT results
 func (fft *DefaultProcessor) generateFrequencies(n int, sampleRate float64) ([]float64, error) {
 	if n <= 0 {
 		return nil, config.ErrInvalidSignalLength
@@ -179,20 +179,12 @@ func (fft *DefaultProcessor) generateFrequencies(n int, sampleRate float64) ([]f
 	
 	frequencies := make([]float64, n)
 	
-	// Generate logarithmically spaced frequencies from 1e-5 to 1e5 Hz
-	minFreq := 1e-5  // 0.00001 Hz
-	maxFreq := 1e5   // 100000 Hz
-	
+	// Generate standard FFT frequencies
 	for i := 0; i < n; i++ {
 		if i < n/2 {
-			// Logarithmic spacing for positive frequencies
-			logMin := math.Log10(minFreq)
-			logMax := math.Log10(maxFreq)
-			logStep := (logMax - logMin) / float64(n/2-1)
-			frequencies[i] = math.Pow(10, logMin + float64(i)*logStep)
+			frequencies[i] = float64(i) * sampleRate / float64(n)
 		} else {
-			// Negative frequencies (mirror of positive for FFT symmetry)
-			frequencies[i] = -frequencies[n-i]
+			frequencies[i] = float64(i-n) * sampleRate / float64(n)
 		}
 	}
 

@@ -13,6 +13,19 @@ type Signal struct {
 	SampleRate float64   `json:"sample_rate"`
 }
 
+// DataPoint represents a single measurement point
+type DataPoint struct {
+	Timestamp  string  `json:"timestamp"`
+	TimeOffset float64 `json:"time_offset"`
+	Value      float64 `json:"value"`
+}
+
+// SignalData represents signal data with measurement points
+type SignalData struct {
+	Type string      `json:"type"` // "voltage" or "current"
+	Data []DataPoint `json:"data"`
+}
+
 // ComplexSignal represents a frequency-domain signal after FFT processing
 type ComplexSignal struct {
 	Timestamp   time.Time    `json:"timestamp"`
@@ -67,12 +80,15 @@ func (id ImpedanceData) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// EISMeasurement represents a complete electrochemical impedance spectroscopy measurement
-type EISMeasurement struct {
-	Voltage   ComplexSignal `json:"voltage"`
-	Current   ComplexSignal `json:"current"`
-	Impedance ImpedanceData `json:"impedance"`
+// ImpedancePoint represents a single impedance measurement point  
+type ImpedancePoint struct {
+	Frequency float64 `json:"frequency"`
+	Real      float64 `json:"real"`
+	Imag      float64 `json:"imag"`
 }
+
+// EISMeasurement represents a complete electrochemical impedance spectroscopy measurement
+type EISMeasurement []ImpedancePoint
 
 // CalculateMagnitudePhase calculates the magnitude and phase from complex impedance values
 func (z *ImpedanceData) CalculateMagnitudePhase() ([]float64, []float64) {
@@ -103,6 +119,27 @@ func (s *Signal) Duration() float64 {
 		return 0
 	}
 	return float64(len(s.Values)) / s.SampleRate
+}
+
+// ToSignalData converts Signal to SignalData format matching CSV structure
+func (s *Signal) ToSignalData(signalType string) SignalData {
+	data := make([]DataPoint, len(s.Values))
+	
+	for i, value := range s.Values {
+		timeOffset := float64(i) / s.SampleRate
+		timestamp := s.Timestamp.Add(time.Duration(timeOffset * float64(time.Second)))
+		
+		data[i] = DataPoint{
+			Timestamp:  timestamp.Format(time.RFC3339Nano),
+			TimeOffset: timeOffset,
+			Value:      value,
+		}
+	}
+	
+	return SignalData{
+		Type: signalType,
+		Data: data,
+	}
 }
 
 // IsEmpty returns true if the complex signal contains no data

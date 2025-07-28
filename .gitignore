@@ -23,6 +23,8 @@ go.work.sum
 /dist/
 masterapp
 masterapp.exe
+testserver
+testserver.exe
 
 # IDE files
 .vscode/

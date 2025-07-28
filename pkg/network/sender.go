@@ -70,7 +70,7 @@ func (ds *DefaultSender) SendEISMeasurement(measurement signal.EISMeasurement) e
 	}
 
 	ds.healthy = true
-	log.Printf("Successfully sent EIS measurement data at %v", measurement.Impedance.Timestamp.Format("15:04:05"))
+	log.Printf("Successfully sent EIS measurement data")
 	return nil
 }
 
