@@ -21,9 +21,9 @@ go.work.sum
 # Build output
 /bin/
 /dist/
-masterapp
+/masterapp
 masterapp.exe
-testserver
+/testserver
 testserver.exe
 
 # IDE files
