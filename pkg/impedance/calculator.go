@@ -85,6 +85,7 @@ func (ic *DefaultCalculator) CalculateImpedance(voltageSignal, currentSignal sig
 		Timestamp:   voltageSignal.Timestamp,
 		Impedance:   impedance,
 		Frequencies: voltageFFT.Frequencies,
+		VoltageData: voltageSignal.Values,
 	}
 
 	magnitude, phase := impedanceData.CalculateMagnitudePhase()

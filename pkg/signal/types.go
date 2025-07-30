@@ -59,6 +59,7 @@ type ImpedanceData struct {
 	Frequencies []float64    `json:"frequencies"`
 	Magnitude   []float64    `json:"magnitude"`
 	Phase       []float64    `json:"phase"`
+	VoltageData []float64    `json:"voltage_data"`
 }
 
 // MarshalJSON custom JSON marshaling for ImpedanceData
@@ -80,7 +81,7 @@ func (id ImpedanceData) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// ImpedancePoint represents a single impedance measurement point  
+// ImpedancePoint represents a single impedance measurement point
 type ImpedancePoint struct {
 	Frequency float64 `json:"frequency"`
 	Real      float64 `json:"real"`
@@ -94,12 +95,12 @@ type EISMeasurement []ImpedancePoint
 func (z *ImpedanceData) CalculateMagnitudePhase() ([]float64, []float64) {
 	magnitude := make([]float64, len(z.Impedance))
 	phase := make([]float64, len(z.Impedance))
-	
+
 	for i, imp := range z.Impedance {
 		magnitude[i] = cmplx.Abs(imp)
 		phase[i] = cmplx.Phase(imp)
 	}
-	
+
 	return magnitude, phase
 }
 
@@ -124,18 +125,18 @@ func (s *Signal) Duration() float64 {
 // ToSignalData converts Signal to SignalData format matching CSV structure
 func (s *Signal) ToSignalData(signalType string) SignalData {
 	data := make([]DataPoint, len(s.Values))
-	
+
 	for i, value := range s.Values {
 		timeOffset := float64(i) / s.SampleRate
 		timestamp := s.Timestamp.Add(time.Duration(timeOffset * float64(time.Second)))
-		
+
 		data[i] = DataPoint{
 			Timestamp:  timestamp.Format(time.RFC3339Nano),
 			TimeOffset: timeOffset,
 			Value:      value,
 		}
 	}
-	
+
 	return SignalData{
 		Type: signalType,
 		Data: data,

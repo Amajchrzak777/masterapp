@@ -119,22 +119,32 @@ func processSignals(ctx context.Context, dataReceiver receiver.DataReceiver, cal
 		case voltageSignal := <-dataReceiver.GetVoltageChannel():
 			select {
 			case currentSignal := <-dataReceiver.GetCurrentChannel():
-				measurement, err := calculator.ProcessEISMeasurement(voltageSignal, currentSignal)
+				impedanceData, err := calculator.CalculateImpedance(voltageSignal, currentSignal)
 				if err != nil {
-					log.Printf("Error processing EIS measurement: %v", err)
+					log.Printf("Error calculating impedance: %v", err)
 					continue
 				}
 
 				if outputMode == "console" {
-					// Output processed data to console as JSON files
+					// Convert to EISMeasurement for file output
+					measurement, err := calculator.ProcessEISMeasurement(voltageSignal, currentSignal)
+					if err != nil {
+						log.Printf("Error processing EIS measurement: %v", err)
+						continue
+					}
 					printEISMeasurement(measurement, "json")
 				} else if outputMode == "csv" {
-					// Output processed data as CSV
+					// Convert to EISMeasurement for CSV output
+					measurement, err := calculator.ProcessEISMeasurement(voltageSignal, currentSignal)
+					if err != nil {
+						log.Printf("Error processing EIS measurement: %v", err)
+						continue
+					}
 					printEISMeasurement(measurement, "csv")
 				} else {
-					// Send via HTTP
-					if err := sender.SendEISMeasurement(measurement); err != nil {
-						log.Printf("Error sending EIS measurement: %v", err)
+					// Send impedance data with voltage via HTTP
+					if err := sender.SendImpedanceData(impedanceData); err != nil {
+						log.Printf("Error sending impedance data: %v", err)
 
 						// Check if sender is unhealthy and log warning
 						if !sender.IsHealthy() {
