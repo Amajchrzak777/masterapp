@@ -59,7 +59,6 @@ type ImpedanceData struct {
 	Frequencies []float64    `json:"frequencies"`
 	Magnitude   []float64    `json:"magnitude"`
 	Phase       []float64    `json:"phase"`
-	VoltageData []float64    `json:"voltage_data"`
 }
 
 // MarshalJSON custom JSON marshaling for ImpedanceData
