@@ -18,6 +18,7 @@ import (
 	"github.com/adam/masterapp/pkg/network"
 	"github.com/adam/masterapp/pkg/receiver"
 	"github.com/adam/masterapp/pkg/signal"
+	eisgen "github.com/adam/masterapp/pkg/impedance"
 )
 
 func main() {
@@ -29,6 +30,7 @@ func main() {
 		voltageFile   = flag.String("voltage", "examples/data/voltage_10s.csv", "Path to voltage CSV file")
 		currentFile   = flag.String("current", "examples/data/current_10s.csv", "Path to current CSV file")
 		outputMode    = flag.String("output", "console", "Output mode: 'http' (send via HTTP), 'console' (print JSON to files), or 'csv' (print CSV format)")
+		useDirectEIS  = flag.Bool("direct", false, "Use direct EIS generation (like Python impedance_data.csv) instead of FFT approach")
 	)
 	flag.Parse()
 
@@ -48,7 +50,14 @@ func main() {
 	log.Printf("Sample rate: %.1f Hz", cfg.SampleRate)
 	log.Printf("Samples per second: %d", cfg.SamplesPerSecond)
 
-	// Initialize data receiver based on mode
+	// Check if using direct EIS generation mode
+	if *useDirectEIS {
+		log.Println("Using direct EIS generation (Python impedance_data.csv approach)")
+		runDirectEISMode(cfg, *outputMode)
+		return
+	}
+
+	// Initialize data receiver based on mode (traditional FFT approach)
 	var dataReceiver receiver.DataReceiver
 	var err error
 
@@ -233,4 +242,115 @@ func printCSVMeasurement(measurement interface{}) {
 	}
 
 	log.Printf("EIS measurement CSV saved to: %s", filePath)
+}
+
+// runDirectEISMode runs the direct EIS generation mode (like Python code)
+func runDirectEISMode(cfg *config.Config, outputMode string) {
+	log.Println("Starting Direct EIS generation mode")
+	log.Println("Replicating Python impedance_data.csv approach")
+	
+	// Create EIS generator with same parameters as Python code
+	eisGenerator := eisgen.NewEISGenerator()
+	params := eisGenerator.GetDefaultParameters()
+	
+	log.Printf("Circuit parameters: Rs=%.1f, Rct_initial=%.1f, Q=%.2e, n=%.2f", 
+		params.Rs, params.RctInitial, params.Q, params.N)
+		
+	// Create network sender
+	sender := network.NewSender(cfg.TargetURL)
+	
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle shutdown signals
+	signalChan := make(chan os.Signal, 1)
+	ossignal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	
+	// Create single output file that gets overwritten each run
+	outputFilePath := "generated_eis_data.csv"
+	if _, err := os.Stat("/root/data"); err == nil {
+		// Running in Docker container
+		outputFilePath = "/root/data/generated_eis_data.csv"
+	}
+	outputFile, err := os.Create(outputFilePath)
+	if err != nil {
+		log.Fatalf("Failed to create output file: %v", err)
+	}
+	defer outputFile.Close()
+	
+	// Write CSV header
+	fmt.Fprintf(outputFile, "Z_real,Z_imag,Spectrum_Number,Frequency_Hz\n")
+	log.Printf("Created output file: %s", outputFilePath)
+	
+	// Start data generation loop (1 second intervals like Python)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	
+	measurementCounter := 1
+	
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Direct EIS generator stopping due to context cancellation")
+			return
+			
+		case <-signalChan:
+			log.Println("Shutdown signal received, stopping...")
+			cancel()
+			return
+			
+		case <-ticker.C:
+			// Generate EIS spectrum (exactly like Python code)
+			impedanceData := eisGenerator.GenerateEISSpectrum(params)
+			
+			currentSpectrum := eisGenerator.GetCurrentSpectrum() - 1 // -1 because it increments after generation
+			log.Printf("Generated EIS spectrum #%d at %s", 
+				currentSpectrum, 
+				time.Now().Format("15:04:05"))
+			
+			// Convert to EIS measurement format
+			eisMeasurement := make(signal.EISMeasurement, len(impedanceData.Impedance))
+			for i, z := range impedanceData.Impedance {
+				eisMeasurement[i] = signal.ImpedancePoint{
+					Frequency: impedanceData.Frequencies[i],
+					Real:      real(z),
+					Imag:      imag(z),
+				}
+			}
+			
+			// Always save to CSV file (in addition to other outputs)
+			for i, z := range impedanceData.Impedance {
+				fmt.Fprintf(outputFile, "%.12e,%.12e,%d,%.12e\n", 
+					real(z), imag(z), currentSpectrum, impedanceData.Frequencies[i])
+			}
+			outputFile.Sync() // Ensure data is written to disk
+			
+			// Output based on mode
+			switch outputMode {
+			case "http":
+				// Send via HTTP to goimpcore
+				if err := sender.SendImpedanceData(impedanceData); err != nil {
+					log.Printf("Error sending impedance data: %v", err)
+				}
+				
+			case "console":
+				// Save to JSON file
+				printEISMeasurement(eisMeasurement, "json")
+				
+			case "csv":
+				// Save to CSV file  
+				printEISMeasurement(eisMeasurement, "csv")
+			}
+			
+			measurementCounter++
+			
+			// Stop after 100 spectra
+			if currentSpectrum >= 99 {
+				log.Println("Generated all 100 spectra, stopping...")
+				cancel()
+				return
+			}
+		}
+	}
 }
