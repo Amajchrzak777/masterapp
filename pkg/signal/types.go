@@ -90,6 +90,19 @@ type ImpedancePoint struct {
 // EISMeasurement represents a complete electrochemical impedance spectroscopy measurement
 type EISMeasurement []ImpedancePoint
 
+// ImpedanceDataWithIteration represents impedance data with iteration number for batch processing
+type ImpedanceDataWithIteration struct {
+	ImpedanceData ImpedanceData `json:"impedance_data"`
+	Iteration     int           `json:"iteration"`
+}
+
+// ImpedanceBatch represents a batch of impedance measurements for efficient processing
+type ImpedanceBatch struct {
+	BatchID   string                        `json:"batch_id"`
+	Timestamp time.Time                     `json:"timestamp"`
+	Spectra   []ImpedanceDataWithIteration  `json:"spectra"`
+}
+
 // CalculateMagnitudePhase calculates the magnitude and phase from complex impedance values
 func (z *ImpedanceData) CalculateMagnitudePhase() ([]float64, []float64) {
 	magnitude := make([]float64, len(z.Impedance))

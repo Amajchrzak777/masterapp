@@ -31,6 +31,8 @@ func main() {
 		currentFile   = flag.String("current", "examples/data/current_10s.csv", "Path to current CSV file")
 		outputMode    = flag.String("output", "console", "Output mode: 'http' (send via HTTP), 'console' (print JSON to files), or 'csv' (print CSV format)")
 		useDirectEIS  = flag.Bool("direct", false, "Use direct EIS generation (like Python impedance_data.csv) instead of FFT approach")
+		circuitType   = flag.String("circuit", "simple", "Circuit complexity: 'simple' (R(CR)), 'medium' (R(Q(R(QR)))), 'complex' (multi-stage)")
+		spectraCount  = flag.Int("spectra", 5, "Number of spectra to generate for direct EIS mode")
 	)
 	flag.Parse()
 
@@ -53,7 +55,7 @@ func main() {
 	// Check if using direct EIS generation mode
 	if *useDirectEIS {
 		log.Println("Using direct EIS generation (Python impedance_data.csv approach)")
-		runDirectEISMode(cfg, *outputMode)
+		runDirectEISMode(cfg, *outputMode, *circuitType, *spectraCount)
 		return
 	}
 
@@ -244,14 +246,59 @@ func printCSVMeasurement(measurement interface{}) {
 	log.Printf("EIS measurement CSV saved to: %s", filePath)
 }
 
+// getCircuitParameters returns circuit parameters based on complexity level
+func getCircuitParameters(circuitType string) eisgen.CircuitParameters {
+	switch circuitType {
+	case "simple":
+		// Simple R(CR) circuit - 3 parameters  
+		return eisgen.CircuitParameters{
+			Rs:         10.0,   // Solution resistance
+			RctInitial: 20.0,   // Initial charge transfer resistance  
+			RctGrowth:  8.0,    // Growth per spectrum
+			Q:          1e-5,   // CPE coefficient
+			N:          0.85,   // CPE exponent
+		}
+	case "medium":
+		// Medium R(Q(R(QR))) circuit - 7 parameters
+		// More challenging optimization with different parameter values
+		return eisgen.CircuitParameters{
+			Rs:         15.0,   // Higher solution resistance
+			RctInitial: 50.0,   // Higher charge transfer resistance
+			RctGrowth:  12.0,   // Faster degradation  
+			Q:          5e-6,   // Different CPE coefficient
+			N:          0.75,   // Different CPE exponent (more capacitive)
+		}
+	case "complex":
+		// Complex multi-stage circuit - 12+ parameters
+		// Very challenging optimization  
+		return eisgen.CircuitParameters{
+			Rs:         8.0,    // Lower solution resistance
+			RctInitial: 80.0,   // High charge transfer resistance
+			RctGrowth:  20.0,   // Aggressive degradation
+			Q:          2e-6,   // Low CPE coefficient  
+			N:          0.65,   // Low CPE exponent (diffusion-like)
+		}
+	default:
+		// Default to simple
+		return eisgen.CircuitParameters{
+			Rs:         10.0,
+			RctInitial: 20.0,
+			RctGrowth:  8.0,
+			Q:          1e-5,
+			N:          0.85,
+		}
+	}
+}
+
 // runDirectEISMode runs the direct EIS generation mode (like Python code)
-func runDirectEISMode(cfg *config.Config, outputMode string) {
+func runDirectEISMode(cfg *config.Config, outputMode, circuitType string, spectraCount int) {
 	log.Println("Starting Direct EIS generation mode")
-	log.Println("Replicating Python impedance_data.csv approach")
+	log.Printf("Circuit complexity: %s", circuitType)
+	log.Printf("Generating %d spectra", spectraCount)
 	
-	// Create EIS generator with same parameters as Python code
+	// Create EIS generator with parameters based on circuit complexity
 	eisGenerator := eisgen.NewEISGenerator()
-	params := eisGenerator.GetDefaultParameters()
+	params := getCircuitParameters(circuitType)
 	
 	log.Printf("Circuit parameters: Rs=%.1f, Rct_initial=%.1f, Q=%.2e, n=%.2f", 
 		params.Rs, params.RctInitial, params.Q, params.N)
@@ -267,11 +314,11 @@ func runDirectEISMode(cfg *config.Config, outputMode string) {
 	signalChan := make(chan os.Signal, 1)
 	ossignal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 	
-	// Create single output file that gets overwritten each run
-	outputFilePath := "generated_eis_data.csv"
+	// Create output file with circuit type in name
+	outputFilePath := fmt.Sprintf("generated_eis_data_%s.csv", circuitType)
 	if _, err := os.Stat("/root/data"); err == nil {
 		// Running in Docker container
-		outputFilePath = "/root/data/generated_eis_data.csv"
+		outputFilePath = fmt.Sprintf("/root/data/generated_eis_data_%s.csv", circuitType)
 	}
 	outputFile, err := os.Create(outputFilePath)
 	if err != nil {
@@ -283,11 +330,12 @@ func runDirectEISMode(cfg *config.Config, outputMode string) {
 	fmt.Fprintf(outputFile, "Z_real,Z_imag,Spectrum_Number,Frequency_Hz\n")
 	log.Printf("Created output file: %s", outputFilePath)
 	
-	// Start data generation loop (1 second intervals like Python)
+	// Batch processing: generate 10 spectra per batch every second
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 	
 	measurementCounter := 1
+	batchSize := 10
 	
 	for {
 		select {
@@ -301,52 +349,76 @@ func runDirectEISMode(cfg *config.Config, outputMode string) {
 			return
 			
 		case <-ticker.C:
-			// Generate EIS spectrum (exactly like Python code)
-			impedanceData := eisGenerator.GenerateEISSpectrum(params)
+			// Generate batch of spectra
+			batch := make([]signal.ImpedanceDataWithIteration, 0, batchSize)
 			
-			currentSpectrum := eisGenerator.GetCurrentSpectrum() - 1 // -1 because it increments after generation
-			log.Printf("Generated EIS spectrum #%d at %s", 
-				currentSpectrum, 
-				time.Now().Format("15:04:05"))
-			
-			// Convert to EIS measurement format
-			eisMeasurement := make(signal.EISMeasurement, len(impedanceData.Impedance))
-			for i, z := range impedanceData.Impedance {
-				eisMeasurement[i] = signal.ImpedancePoint{
-					Frequency: impedanceData.Frequencies[i],
-					Real:      real(z),
-					Imag:      imag(z),
+			for i := 0; i < batchSize; i++ {
+				currentSpectrum := eisGenerator.GetCurrentSpectrum()
+				if currentSpectrum >= spectraCount {
+					break // Stop at specified number of spectra
+				}
+				
+				// Generate EIS spectrum
+				impedanceData := eisGenerator.GenerateEISSpectrum(params)
+				
+				// Create batch item with iteration number for proper ordering
+				batchItem := signal.ImpedanceDataWithIteration{
+					ImpedanceData: impedanceData,
+					Iteration:     currentSpectrum,
+				}
+				batch = append(batch, batchItem)
+				
+				// Always save to CSV file
+				for j, z := range impedanceData.Impedance {
+					fmt.Fprintf(outputFile, "%.12e,%.12e,%d,%.12e\n", 
+						real(z), imag(z), currentSpectrum, impedanceData.Frequencies[j])
 				}
 			}
 			
-			// Always save to CSV file (in addition to other outputs)
-			for i, z := range impedanceData.Impedance {
-				fmt.Fprintf(outputFile, "%.12e,%.12e,%d,%.12e\n", 
-					real(z), imag(z), currentSpectrum, impedanceData.Frequencies[i])
+			if len(batch) == 0 {
+				log.Printf("Generated all %d spectra, stopping...", spectraCount)
+				cancel()
+				return
 			}
+			
 			outputFile.Sync() // Ensure data is written to disk
+			
+			log.Printf("Generated batch of %d spectra (iterations %d-%d) at %s", 
+				len(batch), 
+				batch[0].Iteration, 
+				batch[len(batch)-1].Iteration,
+				time.Now().Format("15:04:05"))
 			
 			// Output based on mode
 			switch outputMode {
 			case "http":
-				// Send via HTTP to goimpcore
-				if err := sender.SendImpedanceData(impedanceData); err != nil {
-					log.Printf("Error sending impedance data: %v", err)
+				// Send batch via HTTP to goimpcore
+				if err := sender.SendBatchImpedanceData(batch); err != nil {
+					log.Printf("Error sending batch impedance data: %v", err)
 				}
 				
 			case "console":
-				// Save to JSON file
-				printEISMeasurement(eisMeasurement, "json")
+				// Save individual measurements to JSON files
+				for _, item := range batch {
+					eisMeasurement := make(signal.EISMeasurement, len(item.ImpedanceData.Impedance))
+					for j, z := range item.ImpedanceData.Impedance {
+						eisMeasurement[j] = signal.ImpedancePoint{
+							Frequency: item.ImpedanceData.Frequencies[j],
+							Real:      real(z),
+							Imag:      imag(z),
+						}
+					}
+					printEISMeasurement(eisMeasurement, "json")
+				}
 				
 			case "csv":
-				// Save to CSV file  
-				printEISMeasurement(eisMeasurement, "csv")
+				// Already saved above
 			}
 			
-			measurementCounter++
+			measurementCounter += len(batch)
 			
-			// Stop after 100 spectra
-			if currentSpectrum >= 99 {
+			// Check if we've generated all spectra
+			if eisGenerator.GetCurrentSpectrum() >= 100 {
 				log.Println("Generated all 100 spectra, stopping...")
 				cancel()
 				return

@@ -74,6 +74,53 @@ func (ds *DefaultSender) SendEISMeasurement(measurement signal.EISMeasurement) e
 	return nil
 }
 
+// SendBatchImpedanceData sends a batch of impedance data to the target server
+func (ds *DefaultSender) SendBatchImpedanceData(batch []signal.ImpedanceDataWithIteration) error {
+	if ds.targetURL == "" {
+		return config.NewNetworkError(ds.targetURL, 0, config.ErrInvalidURL)
+	}
+
+	// Create batch with unique ID
+	batchData := signal.ImpedanceBatch{
+		BatchID:   fmt.Sprintf("batch_%d_%d", time.Now().Unix(), len(batch)),
+		Timestamp: time.Now(),
+		Spectra:   batch,
+	}
+
+	jsonData, err := json.Marshal(batchData)
+	if err != nil {
+		ds.healthy = false
+		return config.NewProcessingError("JSON marshaling", config.ErrJSONMarshalFailed)
+	}
+
+	// Use batch endpoint
+	batchURL := ds.targetURL + "/batch"
+	req, err := http.NewRequest("POST", batchURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		ds.healthy = false
+		return config.NewNetworkError(batchURL, 0, fmt.Errorf("failed to create batch request: %w", err))
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Data-Type", "Impedance-Batch")
+
+	resp, err := ds.client.Do(req)
+	if err != nil {
+		ds.healthy = false
+		return config.NewNetworkError(batchURL, 0, fmt.Errorf("failed to send batch request: %w", err))
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		ds.healthy = false
+		return config.NewNetworkError(batchURL, resp.StatusCode, config.ErrInvalidHTTPResponse)
+	}
+
+	ds.healthy = true
+	log.Printf("Successfully sent batch of %d spectra", len(batch))
+	return nil
+}
+
 // SendImpedanceData sends impedance data to the target server
 func (ds *DefaultSender) SendImpedanceData(impedanceData signal.ImpedanceData) error {
 	if ds.targetURL == "" {

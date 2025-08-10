@@ -8,6 +8,7 @@ import (
 type Sender interface {
 	SendEISMeasurement(measurement signal.EISMeasurement) error
 	SendImpedanceData(impedanceData signal.ImpedanceData) error
+	SendBatchImpedanceData(batch []signal.ImpedanceDataWithIteration) error
 	FormatAsJSON(data interface{}) (string, error)
 	IsHealthy() bool
 }
