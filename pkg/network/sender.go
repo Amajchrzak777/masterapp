@@ -94,7 +94,7 @@ func (ds *DefaultSender) SendBatchImpedanceData(batch []signal.ImpedanceDataWith
 	}
 
 	// Use batch endpoint
-	batchURL := ds.targetURL + "/batch"
+	batchURL := ds.targetURL + "/eis-data/batch"
 	req, err := http.NewRequest("POST", batchURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		ds.healthy = false

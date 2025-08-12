@@ -13,6 +13,8 @@ This is the masterapp Go project - a Dynamic Electrochemical Impedance Spectrosc
 go run ./cmd/masterapp                              # Run with default settings  
 go run ./cmd/masterapp -target="http://localhost:9000"  # Specify target URL
 go run ./cmd/masterapp -rate=2000 -samples=2000    # Custom sample rate and samples per second
+go run ./cmd/masterapp -impedance-csv=combined_impedance_data.csv -output=http # Send impedance CSV to target
+go run ./cmd/masterapp -direct -circuit=medium -spectra=10 -output=http      # Generate and send 10 medium-complexity spectra
 go build -o masterapp ./cmd/masterapp              # Build executable
 ```
 
@@ -78,6 +80,11 @@ masterapp/
 4. **JSON Serialization**: Formats results including magnitude and phase
 5. **HTTP Transmission**: Sends data to target application via POST requests
 
+### Alternative Input Modes
+- **Impedance CSV Mode**: Reads pre-calculated impedance data from CSV files with format: Frequency_Hz,Z_real,Z_imag,Spectrum_Number
+- **Direct EIS Generation**: Generates synthetic impedance spectra for various circuit complexities
+- **File-based Input**: Processes voltage/current data from CSV files instead of real-time signals
+
 ### Key Components
 - **Real-time Processing**: Goroutine-based concurrent signal processing
 - **FFT Implementation**: Custom radix-2 FFT with DFT fallback for non-power-of-2 lengths
@@ -88,6 +95,14 @@ masterapp/
 - `-target`: Target URL for sending EIS data (default: http://localhost:8080/eis-data)
 - `-rate`: Sample rate in Hz (default: 1000.0)
 - `-samples`: Number of samples per second (default: 1000)
+- `-impedance-csv`: Path to impedance CSV file with format: Frequency_Hz,Z_real,Z_imag,Spectrum_Number
+- `-file`: Use file-based voltage/current data input instead of synthetic data
+- `-voltage`: Path to voltage CSV file (default: examples/data/voltage_10s.csv)
+- `-current`: Path to current CSV file (default: examples/data/current_10s.csv)
+- `-output`: Output mode: 'http' (send via HTTP), 'console' (save JSON files), or 'csv' (save CSV files)
+- `-direct`: Use direct EIS generation instead of FFT approach
+- `-circuit`: Circuit complexity for direct EIS: 'simple', 'medium', 'complex'
+- `-spectra`: Number of spectra to generate for direct EIS mode (default: 5)
 
 ## Module Responsibilities
 

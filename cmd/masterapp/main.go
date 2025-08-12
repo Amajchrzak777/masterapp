@@ -33,6 +33,7 @@ func main() {
 		useDirectEIS  = flag.Bool("direct", false, "Use direct EIS generation (like Python impedance_data.csv) instead of FFT approach")
 		circuitType   = flag.String("circuit", "simple", "Circuit complexity: 'simple' (R(CR)), 'medium' (R(Q(R(QR)))), 'complex' (multi-stage)")
 		spectraCount  = flag.Int("spectra", 5, "Number of spectra to generate for direct EIS mode")
+		impedanceCSV  = flag.String("impedance-csv", "", "Path to impedance CSV file (Frequency_Hz,Z_real,Z_imag,Spectrum_Number)")
 	)
 	flag.Parse()
 
@@ -51,6 +52,13 @@ func main() {
 	log.Printf("Target URL: %s", cfg.TargetURL)
 	log.Printf("Sample rate: %.1f Hz", cfg.SampleRate)
 	log.Printf("Samples per second: %d", cfg.SamplesPerSecond)
+
+	// Check if using impedance CSV file input
+	if *impedanceCSV != "" {
+		log.Printf("Using impedance CSV file input: %s", *impedanceCSV)
+		runImpedanceCSVMode(cfg, *outputMode, *impedanceCSV)
+		return
+	}
 
 	// Check if using direct EIS generation mode
 	if *useDirectEIS {
@@ -425,4 +433,79 @@ func runDirectEISMode(cfg *config.Config, outputMode, circuitType string, spectr
 			}
 		}
 	}
+}
+
+// runImpedanceCSVMode reads impedance data from CSV file and sends it to target
+func runImpedanceCSVMode(cfg *config.Config, outputMode, csvPath string) {
+	log.Println("Starting Impedance CSV mode")
+	log.Printf("Reading impedance data from: %s", csvPath)
+	
+	// Create data loader
+	dataLoader := signal.NewDataLoader()
+	csvLoader, ok := dataLoader.(*signal.CSVDataLoader)
+	if !ok {
+		log.Fatalf("Failed to create CSV data loader")
+	}
+	
+	// Load impedance data from CSV
+	impedanceData, err := csvLoader.LoadImpedanceFromCSV(csvPath)
+	if err != nil {
+		log.Fatalf("Failed to load impedance data: %v", err)
+	}
+	
+	log.Printf("Loaded %d spectra from CSV file", len(impedanceData))
+	
+	// Create network sender
+	sender := network.NewSender(cfg.TargetURL)
+	
+	// Wait a bit for goimpcore to be ready (in Docker environment)
+	log.Println("Waiting 5 seconds for target server to be ready...")
+	time.Sleep(5 * time.Second)
+	
+	// Output based on mode
+	switch outputMode {
+	case "http":
+		// Send all spectra as a single batch to goimpcore
+		log.Printf("Sending %d spectra as batch to: %s", len(impedanceData), cfg.TargetURL)
+		
+		if err := sender.SendBatchImpedanceData(impedanceData); err != nil {
+			log.Printf("Error sending batch impedance data: %v", err)
+		} else {
+			log.Printf("Successfully sent batch of %d spectra", len(impedanceData))
+		}
+		
+	case "console":
+		// Save individual measurements to JSON files
+		log.Printf("Saving %d spectra to JSON files", len(impedanceData))
+		
+		for _, item := range impedanceData {
+			eisMeasurement := make(signal.EISMeasurement, len(item.ImpedanceData.Impedance))
+			for j, z := range item.ImpedanceData.Impedance {
+				eisMeasurement[j] = signal.ImpedancePoint{
+					Frequency: item.ImpedanceData.Frequencies[j],
+					Real:      real(z),
+					Imag:      imag(z),
+				}
+			}
+			printEISMeasurement(eisMeasurement, "json")
+		}
+		
+	case "csv":
+		// Save each spectrum as separate CSV file
+		log.Printf("Saving %d spectra to CSV files", len(impedanceData))
+		
+		for _, item := range impedanceData {
+			eisMeasurement := make(signal.EISMeasurement, len(item.ImpedanceData.Impedance))
+			for j, z := range item.ImpedanceData.Impedance {
+				eisMeasurement[j] = signal.ImpedancePoint{
+					Frequency: item.ImpedanceData.Frequencies[j],
+					Real:      real(z),
+					Imag:      imag(z),
+				}
+			}
+			printEISMeasurement(eisMeasurement, "csv")
+		}
+	}
+	
+	log.Println("Impedance CSV processing completed")
 }

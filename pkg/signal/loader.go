@@ -141,6 +141,111 @@ func (loader *CSVDataLoader) parseSignalChunk(records [][]string, sampleRate flo
 	}, nil
 }
 
+// LoadImpedanceFromCSV loads impedance data from a combined CSV file
+// Expected CSV format: Frequency_Hz,Z_real,Z_imag,Spectrum_Number
+func (loader *CSVDataLoader) LoadImpedanceFromCSV(filename string) ([]ImpedanceDataWithIteration, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, config.NewProcessingError("file opening", fmt.Errorf("failed to open %s: %w", filename, err))
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, config.NewProcessingError("CSV reading", fmt.Errorf("failed to read CSV: %w", err))
+	}
+
+	if len(records) < 2 {
+		return nil, config.NewValidationError("Data", "CSV file must have at least header and one data row")
+	}
+
+	// Check if first line looks like headers
+	firstLine := records[0]
+	hasHeaders := len(firstLine) > 0 && (firstLine[0] == "Frequency_Hz" || firstLine[0] == "frequency")
+	
+	startIndex := 0
+	if hasHeaders {
+		startIndex = 1
+	}
+
+	// Group data by spectrum number
+	dataBySpectrum := make(map[int]*spectrumData)
+	
+	for i := startIndex; i < len(records); i++ {
+		record := records[i]
+		if len(record) < 3 {
+			continue // Skip incomplete lines
+		}
+
+		frequency, err := strconv.ParseFloat(record[0], 64)
+		if err != nil {
+			continue // Skip invalid frequency
+		}
+
+		zReal, err := strconv.ParseFloat(record[1], 64)
+		if err != nil {
+			continue // Skip invalid real part
+		}
+
+		zImag, err := strconv.ParseFloat(record[2], 64)
+		if err != nil {
+			continue // Skip invalid imaginary part
+		}
+
+		// If there's a 4th column, use it as spectrum number, otherwise treat as single spectrum
+		spectrumNumber := 1
+		if len(record) >= 4 {
+			if num, err := strconv.Atoi(record[3]); err == nil {
+				spectrumNumber = num
+			}
+		}
+
+		// Initialize spectrum data if not exists
+		if dataBySpectrum[spectrumNumber] == nil {
+			dataBySpectrum[spectrumNumber] = &spectrumData{
+				frequencies: make([]float64, 0),
+				impedances:  make([]complex128, 0),
+			}
+		}
+
+		// Add data point
+		dataBySpectrum[spectrumNumber].frequencies = append(dataBySpectrum[spectrumNumber].frequencies, frequency)
+		dataBySpectrum[spectrumNumber].impedances = append(dataBySpectrum[spectrumNumber].impedances, complex(zReal, zImag))
+	}
+
+	if len(dataBySpectrum) == 0 {
+		return nil, config.NewValidationError("Data", "No valid impedance data found in CSV")
+	}
+
+	// Convert to ImpedanceDataWithIteration array
+	result := make([]ImpedanceDataWithIteration, 0, len(dataBySpectrum))
+	
+	// Process spectra in order
+	for spectrumNum := 1; spectrumNum <= len(dataBySpectrum); spectrumNum++ {
+		if spectrum, exists := dataBySpectrum[spectrumNum]; exists {
+			impedanceData := ImpedanceData{
+				Timestamp:   time.Now(),
+				Frequencies: spectrum.frequencies,
+				Impedance:   spectrum.impedances,
+			}
+
+			result = append(result, ImpedanceDataWithIteration{
+				ImpedanceData: impedanceData,
+				Iteration:     spectrumNum,
+			})
+		}
+	}
+
+	return result, nil
+}
+
+// spectrumData holds frequency and impedance data for a single spectrum
+type spectrumData struct {
+	frequencies []float64
+	impedances  []complex128
+}
+
 // GetDataInfo returns information about the loaded data files
 func GetDataInfo(voltageFile, currentFile string) (map[string]interface{}, error) {
 	info := make(map[string]interface{})
